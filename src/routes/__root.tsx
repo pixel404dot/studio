@@ -1,10 +1,11 @@
-import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
+import { ClientOnly, createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "Studio";
 const BASE_URL = (import.meta.env?.BASE_URL || "/").replace(/\/$/, "");
+const staticSite = import.meta.env?.VITE_STATIC_SITE === "true";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -28,7 +29,7 @@ export const Route = createRootRoute({
         href: "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap",
       },
       { rel: "stylesheet", href: appCss },
-      { rel: "manifest", href: `${BASE_URL}/__grok/manifest.webmanifest` },
+      ...(staticSite ? [] : [{ rel: "manifest", href: `${BASE_URL}/__grok/manifest.webmanifest` }]),
       { rel: "apple-touch-icon", href: `${BASE_URL}/__grok/icon-180.png` },
     ],
   }),
@@ -39,9 +40,17 @@ export const Route = createRootRoute({
       </head>
       <body>
         <PreviewHostBridge />
-        <AuthProvider>
-          <Outlet />
-        </AuthProvider>
+        {staticSite ? (
+          <ClientOnly>
+            <AuthProvider>
+              <Outlet />
+            </AuthProvider>
+          </ClientOnly>
+        ) : (
+          <AuthProvider>
+            <Outlet />
+          </AuthProvider>
+        )}
         <Scripts />
       </body>
     </html>
