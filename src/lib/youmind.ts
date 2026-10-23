@@ -1,4 +1,4 @@
-import { FloraApiError, type FloraModel, type OutputPiece, type RunSnapshot } from "@/lib/flora";
+import { FloraApiError, relayFetch, type FloraModel, type OutputPiece, type RunSnapshot } from "@/lib/flora";
 
 export const LS_YOUMIND = "flora.youmindKey";
 export const YOUMIND_IMAGE_ID = "youmind:image";
@@ -46,7 +46,7 @@ export async function youmindRequest(
 ): Promise<unknown> {
   let response: Response;
   try {
-    response = await fetch("/api/youmind", {
+    response = await relayFetch("/api/youmind", {
       method: "POST",
       signal,
       headers: { "Content-Type": "application/json", Accept: "application/json" },

@@ -254,6 +254,9 @@ function friendly(status: number, code: string, message: string): string {
     return "This API key can’t do that. Check its workspace permissions in Flora Settings → API Keys.";
   }
   if (status === 404) return message || "Flora couldn’t find that resource.";
+  if (status === 405 || /<html|<!doctype/i.test(message)) {
+    return "Couldn’t reach the Flora relay from this static host. Ensure the workspace relay is online.";
+  }
   if (status === 429) return "Flora rate-limited this key. Wait a moment and try again.";
   return message || `Flora returned an error (${status || "network"}).`;
 }
@@ -275,6 +278,45 @@ function parseErrorBody(data: unknown, status: number, requestId?: string | null
   return new FloraApiError(message, { status, code, fields, cors: false });
 }
 
+let cachedRelayOrigin: string | null = null;
+
+function getRelayCandidates(): string[] {
+  const isStatic = import.meta.env?.VITE_STATIC_SITE === "true";
+  const envRelay = String(import.meta.env?.VITE_RELAY_ORIGIN || "https://16493ec777f63a.lhr.life").replace(/\/$/, "");
+  const list: string[] = [];
+  if (cachedRelayOrigin !== null) list.push(cachedRelayOrigin);
+  if (!isStatic && !list.includes("")) list.push("");
+  if (envRelay && !list.includes(envRelay)) list.push(envRelay);
+  if (!list.includes("http://127.0.0.1:8080")) list.push("http://127.0.0.1:8080");
+  if (!list.includes("http://localhost:8080")) list.push("http://localhost:8080");
+  if (isStatic && !list.includes("")) list.push("");
+  return list;
+}
+
+export async function relayFetch(apiPath: string, init: RequestInit): Promise<Response> {
+  const candidates = getRelayCandidates();
+  let lastError: unknown = null;
+  let lastResponse: Response | null = null;
+  for (const origin of candidates) {
+    try {
+      const res = await fetch(`${origin}${apiPath}`, init);
+      const ctype = (res.headers.get("content-type") || "").toLowerCase();
+      // Static hosts (like GitHub Pages) return 404/405 text/html for POST /api/*
+      if ((res.status === 404 || res.status === 405) && ctype.includes("text/html")) {
+        lastResponse = res;
+        continue;
+      }
+      cachedRelayOrigin = origin;
+      return res;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
+      lastError = error;
+    }
+  }
+  if (lastResponse) return lastResponse;
+  throw lastError ?? new Error("Relay unreachable");
+}
+
 export async function floraRequest(key: string, path: string, init: RequestInit = {}): Promise<unknown> {
   const url = path.startsWith("http") ? path : `${FLORA_BASE}${path.startsWith("/") ? path : `/${path}`}`;
   const parsed = new URL(url);
@@ -290,7 +332,7 @@ export async function floraRequest(key: string, path: string, init: RequestInit 
   const method = (init.method || "GET").toUpperCase();
   let response: Response;
   try {
-    response = await fetch("/api/flora", {
+    response = await relayFetch("/api/flora", {
       method: "POST",
       signal: init.signal,
       headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -1121,7 +1163,7 @@ export async function uploadAsset(key: string, workspaceId: string, projectId: s
   form.set("file", file);
   let response: Response;
   try {
-    response = await fetch("/api/flora-asset", { method: "POST", body: form });
+    response = await relayFetch("/api/flora-asset", { method: "POST", body: form });
   } catch {
     throw new FloraApiError("Couldn’t upload that file.", { status: 0, code: "network", fields: [], cors: false });
   }

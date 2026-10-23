@@ -28,16 +28,24 @@ function allowedPath(raw: string): string | null {
   return `${FLORA_PREFIX}${pathname}${search}`;
 }
 
+const CORS_HEADERS: Record<string, string> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "Content-Type, Accept, Authorization, Idempotency-Key",
+  "access-control-allow-private-network": "true",
+};
+
 function jsonError(status: number, code: string, message: string) {
   return new Response(JSON.stringify({ error: { code, message } }), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...CORS_HEADERS },
   });
 }
 
 export const Route = createFileRoute("/api/flora")({
   server: {
     handlers: {
+      OPTIONS: async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
       POST: async ({ request }) => {
         let payload: unknown;
         try {
@@ -81,7 +89,7 @@ export const Route = createFileRoute("/api/flora")({
 
         let text = await upstream.text();
         if (text.includes(apiKey)) text = text.split(apiKey).join("ak_…");
-        const responseHeaders = new Headers();
+        const responseHeaders = new Headers(CORS_HEADERS);
         responseHeaders.set("content-type", upstream.headers.get("content-type") || "application/json");
         const requestId = upstream.headers.get("flora-request-id");
         if (requestId) responseHeaders.set("flora-request-id", requestId);

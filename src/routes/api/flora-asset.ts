@@ -2,10 +2,17 @@ import { createFileRoute } from "@tanstack/react-router";
 
 const MAX_BYTES = 4 * 1024 * 1024;
 
+const CORS_HEADERS: Record<string, string> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "Content-Type, Accept, Authorization",
+  "access-control-allow-private-network": "true",
+};
+
 function jsonError(status: number, code: string, message: string) {
   return new Response(JSON.stringify({ error: { code, message } }), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...CORS_HEADERS },
   });
 }
 
@@ -17,6 +24,7 @@ function allowedFile(file: File): boolean {
 export const Route = createFileRoute("/api/flora-asset")({
   server: {
     handlers: {
+      OPTIONS: async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
       POST: async ({ request }) => {
         let form: FormData;
         try {
@@ -63,7 +71,7 @@ export const Route = createFileRoute("/api/flora-asset")({
         if (text.includes(apiKey)) text = text.split(apiKey).join("ak_…");
         const contentType = upstream.headers.get("content-type") || "application/json";
         if (!upstream.ok) {
-          return new Response(text, { status: upstream.status, headers: { "content-type": contentType } });
+          return new Response(text, { status: upstream.status, headers: { "content-type": contentType, ...CORS_HEADERS } });
         }
         let data: Record<string, unknown> = {};
         try {
@@ -74,11 +82,14 @@ export const Route = createFileRoute("/api/flora-asset")({
         }
         const url = typeof data.url === "string" ? data.url : "";
         if (!url.startsWith("https://")) return jsonError(502, "bad_asset", "Flora didn’t return a file URL.");
-        return Response.json({
-          url,
-          asset_id: typeof data.asset_id === "string" ? data.asset_id : "",
-          status: typeof data.status === "string" ? data.status : "",
-        });
+        return Response.json(
+          {
+            url,
+            asset_id: typeof data.asset_id === "string" ? data.asset_id : "",
+            status: typeof data.status === "string" ? data.status : "",
+          },
+          { headers: CORS_HEADERS },
+        );
       },
     },
   },
