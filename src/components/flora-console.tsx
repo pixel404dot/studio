@@ -311,7 +311,7 @@ export function FloraConsole() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || import.meta.env?.VITE_STATIC_SITE === "true") return;
     let cancelled = false;
     listRuns()
       .then((rows) => {
@@ -602,7 +602,7 @@ export function FloraConsole() {
 
   function pushHistory(item: HistoryItem) {
     setHistory((current) => [item, ...current.filter((entry) => entry.id !== item.id)].slice(0, 40));
-    if (!user) return;
+    if (!user || import.meta.env?.VITE_STATIC_SITE === "true") return;
     void saveRun({ data: { ...item, snap: { ...item.snap, raw: null } } }).catch(() => {});
   }
 
@@ -1186,7 +1186,7 @@ export function FloraConsole() {
   async function deleteSaved(id: string) {
     const previous = history;
     setHistory((items) => items.filter((item) => item.id !== id));
-    if (!user) return;
+    if (!user || import.meta.env?.VITE_STATIC_SITE === "true") return;
     try {
       await deleteRun({ data: { id } });
     } catch {
@@ -1200,7 +1200,7 @@ export function FloraConsole() {
     const previousRuns = history;
     setArchivedThreads([]);
     setHistory([]);
-    if (!user || !previousRuns.length) return;
+    if (!user || !previousRuns.length || import.meta.env?.VITE_STATIC_SITE === "true") return;
     try {
       await clearRuns();
     } catch {
