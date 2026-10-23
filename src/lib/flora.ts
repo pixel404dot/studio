@@ -307,7 +307,7 @@ async function getRelayCandidates(forceRefresh = false): Promise<string[]> {
   if (isStatic && (forceRefresh || !dynamicRelayOrigin)) {
     await fetchDynamicRelayOrigin();
   }
-  const envRelay = String(import.meta.env?.VITE_RELAY_ORIGIN || "").replace(/\/$/, "");
+  const envRelay = String(import.meta.env?.VITE_RELAY_ORIGIN || "https://studio-rose-sigma.vercel.app").replace(/\/$/, "");
   const list: string[] = [];
   if (!forceRefresh && cachedRelayOrigin !== null) list.push(cachedRelayOrigin);
   if (!isStatic && !list.includes("")) list.push("");
