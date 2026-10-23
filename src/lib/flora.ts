@@ -307,14 +307,12 @@ async function getRelayCandidates(forceRefresh = false): Promise<string[]> {
   if (isStatic && (forceRefresh || !dynamicRelayOrigin)) {
     await fetchDynamicRelayOrigin();
   }
-  const envRelay = String(import.meta.env?.VITE_RELAY_ORIGIN || "https://5ff4e03024024a.lhr.life").replace(/\/$/, "");
+  const envRelay = String(import.meta.env?.VITE_RELAY_ORIGIN || "").replace(/\/$/, "");
   const list: string[] = [];
   if (!forceRefresh && cachedRelayOrigin !== null) list.push(cachedRelayOrigin);
   if (!isStatic && !list.includes("")) list.push("");
   if (dynamicRelayOrigin && !list.includes(dynamicRelayOrigin)) list.push(dynamicRelayOrigin);
   if (envRelay && !list.includes(envRelay)) list.push(envRelay);
-  if (!list.includes("http://127.0.0.1:8080")) list.push("http://127.0.0.1:8080");
-  if (!list.includes("http://localhost:8080")) list.push("http://localhost:8080");
   if (isStatic && !list.includes("")) list.push("");
   return list;
 }
