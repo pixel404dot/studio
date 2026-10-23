@@ -2,10 +2,18 @@ import { createFileRoute } from "@tanstack/react-router";
 
 const MAX_BYTES = 80 * 1024 * 1024;
 
+const CORS_HEADERS: Record<string, string> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, OPTIONS",
+  "access-control-allow-headers": "Content-Type, Accept",
+  "access-control-expose-headers": "Content-Disposition, Content-Type",
+  "access-control-allow-private-network": "true",
+};
+
 function jsonError(status: number, code: string, message: string) {
   return new Response(JSON.stringify({ error: { code, message } }), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...CORS_HEADERS },
   });
 }
 
@@ -55,6 +63,7 @@ function allowedMediaUrl(raw: string): URL | null {
 export const Route = createFileRoute("/api/flora-file")({
   server: {
     handlers: {
+      OPTIONS: async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
       GET: async ({ request }) => {
         const query = new URL(request.url).searchParams;
         const target = allowedMediaUrl(query.get("url") || "");
@@ -81,12 +90,13 @@ export const Route = createFileRoute("/api/flora-file")({
         const length = Number(upstream.headers.get("content-length") || "0");
         if (length > MAX_BYTES) return jsonError(413, "too_large", "That file is too large to download here.");
         const type = upstream.headers.get("content-type") || "application/octet-stream";
-        if (!/^(image|video|audio|application\/octet-stream|binary\/octet-stream)/i.test(type)) {
-          return jsonError(415, "bad_type", "That link isn’t an image, video, or audio file.");
+        if (!/^(image|video|audio|model|application\/octet-stream|binary\/octet-stream)/i.test(type)) {
+          return jsonError(415, "bad_type", "That link isn’t an image, video, audio, or 3D file.");
         }
         const encoded = encodeURIComponent(filename);
         return new Response(upstream.body, {
           headers: {
+            ...CORS_HEADERS,
             "content-type": type,
             "content-disposition": `attachment; filename="${filename.replace(/"/g, "")}"; filename*=UTF-8''${encoded}`,
             "cache-control": "private, max-age=60",

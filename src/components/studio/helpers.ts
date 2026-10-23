@@ -1,5 +1,5 @@
 import { AudioLines, Box, Image as ImageIcon, Play, Type } from "lucide-react";
-import { isMediaParam, type FloraModel, type GenType, type ModelParam, type ParamDraft, type RunSnapshot } from "@/lib/flora";
+import { isMediaParam, relayFetch, type FloraModel, type GenType, type ModelParam, type ParamDraft, type RunSnapshot } from "@/lib/flora";
 
 export const TYPES: { id: GenType; label: string; icon: typeof ImageIcon; placeholder: string }[] = [
   { id: "image", label: "Image", icon: ImageIcon, placeholder: "Describe the image you want to create…" },
@@ -238,7 +238,7 @@ export function settingChips(model: FloraModel | null, draft: Record<string, Par
       chips.push(param.label || param.name);
     }
   }
-  return chips.slice(0, 3);
+  return chips;
 }
 
 /** CSS aspect-ratio for a recipe's chosen aspect chip, used to size loading placeholders. */
@@ -339,29 +339,88 @@ export function downloadName(recipe: RunRecipe, url: string, index: number): str
   const path = url.split("?")[0].split("#")[0];
   const found = path.match(/\.([a-z0-9]{2,5})$/i)?.[1]?.toLowerCase();
   const ext = found || (recipe.type === "video" ? "mp4" : recipe.type === "audio" ? "mp3" : recipe.type === "model3d" ? "glb" : "png");
-  const parts = [recipe.modelName, ...recipe.chips].map(safeFilePart).filter(Boolean);
+  const settingParts: string[] = [...recipe.chips];
+  for (const [key, val] of Object.entries(recipe.params ?? {})) {
+    if (/prompt|image|video|audio|url|file|mask/i.test(key)) continue;
+    if (typeof val === "string" && val.trim() && !val.startsWith("http")) {
+      const formatted = shortSetting(val.trim(), val.trim());
+      if (!settingParts.some((chip) => chip.toLowerCase() === formatted.toLowerCase() || chip.toLowerCase() === val.trim().toLowerCase())) {
+        settingParts.push(formatted);
+      }
+    } else if (typeof val === "number" && Number.isFinite(val)) {
+      const formatted = String(val);
+      if (!settingParts.includes(formatted)) settingParts.push(formatted);
+    } else if (val === true) {
+      const label = key.replace(/_/g, " ").trim();
+      if (label && !settingParts.some((chip) => chip.toLowerCase() === label.toLowerCase())) {
+        settingParts.push(label);
+      }
+    }
+  }
+  const parts = [recipe.modelName, ...settingParts].map(safeFilePart).filter(Boolean);
   let base = parts.join(" ").slice(0, 140).trim() || "image";
   if (index > 0) base = `${base} ${index + 1}`;
   return `${base}.${ext}`;
 }
 
+function extFromMime(mime: string): string | null {
+  const clean = mime.toLowerCase().split(";")[0].trim();
+  if (clean === "image/jpeg" || clean === "image/jpg") return "jpg";
+  if (clean === "image/png") return "png";
+  if (clean === "image/webp") return "webp";
+  if (clean === "image/gif") return "gif";
+  if (clean === "image/avif") return "avif";
+  if (clean === "video/mp4") return "mp4";
+  if (clean === "video/webm") return "webm";
+  if (clean === "audio/mpeg" || clean === "audio/mp3") return "mp3";
+  if (clean === "audio/wav" || clean === "audio/x-wav") return "wav";
+  if (clean === "audio/ogg") return "ogg";
+  if (clean === "model/gltf-binary") return "glb";
+  return null;
+}
+
 export async function downloadFile(url: string, fileName: string): Promise<void> {
-  const href = `/api/flora-file?url=${encodeURIComponent(url)}&name=${encodeURIComponent(fileName)}`;
+  const apiPath = `/api/flora-file?url=${encodeURIComponent(url)}&name=${encodeURIComponent(fileName)}`;
+  let blob: Blob | null = null;
+
   try {
-    const response = await fetch(href);
-    if (!response.ok) throw new Error("download failed");
-    const blob = await response.blob();
+    const response = await relayFetch(apiPath, { method: "GET" });
+    if (response.ok) {
+      blob = await response.blob();
+    }
+  } catch {
+    // Fall through to direct CORS fetch
+  }
+
+  if (!blob) {
+    try {
+      const direct = await fetch(url, { mode: "cors" });
+      if (direct.ok) {
+        blob = await direct.blob();
+      }
+    } catch {
+      // Fall through
+    }
+  }
+
+  if (blob && blob.size > 0) {
+    const detectedExt = extFromMime(blob.type);
+    const finalName = detectedExt
+      ? fileName.replace(/\.[a-z0-9]{2,5}$/i, `.${detectedExt}`)
+      : fileName;
     const objectUrl = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = objectUrl;
-    link.download = fileName;
+    link.download = finalName;
+    link.style.display = "none";
     document.body.appendChild(link);
     link.click();
     link.remove();
-    URL.revokeObjectURL(objectUrl);
-  } catch {
-    window.open(url, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    return;
   }
+
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 const BASE_URL = (import.meta.env?.BASE_URL || "/").replace(/\/$/, "");
