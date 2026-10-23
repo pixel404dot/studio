@@ -279,13 +279,39 @@ function parseErrorBody(data: unknown, status: number, requestId?: string | null
 }
 
 let cachedRelayOrigin: string | null = null;
+let dynamicRelayOrigin: string | null = null;
 
-function getRelayCandidates(): string[] {
+async function fetchDynamicRelayOrigin(): Promise<string | null> {
+  const urls = [
+    `https://raw.githubusercontent.com/pixel404dot/studio/gh-pages/relay.json?t=${Date.now()}`,
+    `${(import.meta.env?.BASE_URL || "/").replace(/\/$/, "")}/relay.json?t=${Date.now()}`,
+  ];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) continue;
+      const data = (await res.json()) as { origin?: unknown };
+      if (typeof data?.origin === "string" && data.origin.startsWith("https://")) {
+        dynamicRelayOrigin = data.origin.replace(/\/$/, "");
+        return dynamicRelayOrigin;
+      }
+    } catch {
+      // Ignore and try next source
+    }
+  }
+  return dynamicRelayOrigin;
+}
+
+async function getRelayCandidates(forceRefresh = false): Promise<string[]> {
   const isStatic = import.meta.env?.VITE_STATIC_SITE === "true";
-  const envRelay = String(import.meta.env?.VITE_RELAY_ORIGIN || "https://16493ec777f63a.lhr.life").replace(/\/$/, "");
+  if (isStatic && (forceRefresh || !dynamicRelayOrigin)) {
+    await fetchDynamicRelayOrigin();
+  }
+  const envRelay = String(import.meta.env?.VITE_RELAY_ORIGIN || "https://5ff4e03024024a.lhr.life").replace(/\/$/, "");
   const list: string[] = [];
-  if (cachedRelayOrigin !== null) list.push(cachedRelayOrigin);
+  if (!forceRefresh && cachedRelayOrigin !== null) list.push(cachedRelayOrigin);
   if (!isStatic && !list.includes("")) list.push("");
+  if (dynamicRelayOrigin && !list.includes(dynamicRelayOrigin)) list.push(dynamicRelayOrigin);
   if (envRelay && !list.includes(envRelay)) list.push(envRelay);
   if (!list.includes("http://127.0.0.1:8080")) list.push("http://127.0.0.1:8080");
   if (!list.includes("http://localhost:8080")) list.push("http://localhost:8080");
@@ -294,27 +320,36 @@ function getRelayCandidates(): string[] {
 }
 
 export async function relayFetch(apiPath: string, init: RequestInit): Promise<Response> {
-  const candidates = getRelayCandidates();
-  let lastError: unknown = null;
-  let lastResponse: Response | null = null;
-  for (const origin of candidates) {
-    try {
-      const res = await fetch(`${origin}${apiPath}`, init);
-      const ctype = (res.headers.get("content-type") || "").toLowerCase();
-      // Static hosts (like GitHub Pages) return 404/405 text/html for POST /api/*
-      if ((res.status === 404 || res.status === 405) && ctype.includes("text/html")) {
-        lastResponse = res;
-        continue;
+  for (const forceRefresh of [false, true]) {
+    const candidates = await getRelayCandidates(forceRefresh);
+    let lastError: unknown = null;
+    let lastResponse: Response | null = null;
+    for (const origin of candidates) {
+      try {
+        const res = await fetch(`${origin}${apiPath}`, init);
+        const ctype = (res.headers.get("content-type") || "").toLowerCase();
+        // Static hosts or expired tunnels return 404/405/502/503 text/html for /api/*
+        if (
+          (res.status === 404 || res.status === 405 || res.status === 502 || res.status === 503) &&
+          ctype.includes("text/html")
+        ) {
+          if (cachedRelayOrigin === origin) cachedRelayOrigin = null;
+          lastResponse = res;
+          continue;
+        }
+        cachedRelayOrigin = origin;
+        return res;
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") throw error;
+        if (cachedRelayOrigin === origin) cachedRelayOrigin = null;
+        lastError = error;
       }
-      cachedRelayOrigin = origin;
-      return res;
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") throw error;
-      lastError = error;
     }
+    if (!forceRefresh) continue;
+    if (lastResponse) return lastResponse;
+    throw lastError ?? new Error("Relay unreachable");
   }
-  if (lastResponse) return lastResponse;
-  throw lastError ?? new Error("Relay unreachable");
+  throw new Error("Relay unreachable");
 }
 
 export async function floraRequest(key: string, path: string, init: RequestInit = {}): Promise<unknown> {
